@@ -18,10 +18,6 @@ export class OrderItem extends BaseEntity {
   @Column('uuid')
   productId!: string;
 
-  @ManyToOne(() => Product)
-  @JoinColumn({ name: 'productId' })
-  product!: Product;
-
   @Column({ type: 'text', nullable: true })
   selectedSize!: string | null;
 
@@ -39,5 +35,5 @@ export class OrderItem extends BaseEntity {
   quantity!: number;
 
   @Column('decimal', { precision: 10, scale: 2 })
-  lineTotal!: number;
+  totalPrice!: number;
 }

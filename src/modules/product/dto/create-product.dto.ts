@@ -3,7 +3,7 @@ import { IsBoolean, IsNumber, IsOptional, IsPositive, IsString, Length, Min } fr
 export class CreateProductDto {
   @IsString()
   @Length(2, 160)
-  name: string;
+  name!: string;
 
   @IsString()
   @IsOptional()
@@ -12,7 +12,7 @@ export class CreateProductDto {
 
   @IsNumber()
   @IsPositive()
-  price: number;
+  price!: number;
 
   @IsNumber()
   @Min(0)

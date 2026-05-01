@@ -2,7 +2,6 @@ import { BaseEntity } from 'src/database/entities/base.entity';
 import { User } from 'src/modules/users/entities/user.entity';
 import { Entity, Column, ManyToOne, Index } from 'typeorm';
 
-
 @Entity('addresses')
 export class Address extends BaseEntity {
   @Index()
@@ -23,9 +22,6 @@ export class Address extends BaseEntity {
   @Column({ type: 'varchar', length: 255 })
   line1!: string;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  line2!: string | null;
-
   @Column({ type: 'varchar', length: 100 })
   landmark!: string;
 
@@ -41,6 +37,6 @@ export class Address extends BaseEntity {
   @Column({ type: 'varchar', length: 100, default: 'India' })
   country!: string;
 
-  @Column({ type: 'boolean', default: false })
-  isDefault!: boolean;
+  // @Column({ type: 'boolean', default: false })
+  // isDefault!: boolean;
 }

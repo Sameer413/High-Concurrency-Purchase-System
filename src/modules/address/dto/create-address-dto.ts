@@ -13,9 +13,9 @@ export class CreateAddressDto {
   @IsNotEmpty()
   line1!: string;
 
-  @IsOptional()
-  @IsString()
-  line2?: string;
+  // @IsOptional()
+  // @IsString()
+  // line2?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -37,7 +37,7 @@ export class CreateAddressDto {
   @IsString()
   country?: string;
 
-  @IsOptional()
-  @IsBoolean()
-  isDefault?: boolean;
+  // @IsOptional()
+  // @IsBoolean()
+  // isDefault?: boolean;
 }

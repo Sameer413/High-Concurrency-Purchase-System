@@ -1,11 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Order } from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { Product } from '../product/entities/product.entity';
+import { RedisService } from 'src/database/redis/redis.service';
 
 @Injectable()
 export class OrderService {
@@ -16,57 +17,98 @@ export class OrderService {
     private readonly orderItemsRepo: Repository<OrderItem>,
     @InjectRepository(Product)
     private readonly productRepo: Repository<Product>,
+    private readonly redisService: RedisService,
+    private readonly dataSource: DataSource,
   ) {}
 
-  async create(dto: CreateOrderDto): Promise<Order> {
-    const product = await this.productRepo.findOne({ where: { id: dto.productId } });
-    if (!product || !product.isActive) {
-      throw new NotFoundException('Product not found');
+  async create(dto: CreateOrderDto, userId: string): Promise<Order> {
+    const { reservationId } = dto;
+
+    // Step 1: Get reservation from Redis
+    const reservationRaw = await this.redisService.get(reservationId);
+    if (!reservationRaw) {
+      throw new NotFoundException('Reservation not found');
     }
 
-    // Create the order
-    const order = this.ordersRepo.create({
-      orderNumber: this.generateOrderNumber(),
-      userId: dto.userId,
-      customerEmail: dto.customerEmail,
-      customerPhone: dto.customerPhone,
-      shippingFirstName: dto.shippingFirstName,
-      shippingLastName: dto.shippingLastName,
-      shippingAddressLine1: dto.shippingAddressLine1,
-      shippingAddressLine2: dto.shippingAddressLine2,
-      shippingCity: dto.shippingCity,
-      shippingState: dto.shippingState,
-      shippingPostalCode: dto.shippingPostalCode,
-      shippingCountry: dto.shippingCountry,
-      sameAsShipping: dto.sameAsShipping ?? true,
-      subtotal: dto.subtotal,
-      taxAmount: dto.taxAmount ?? 0,
-      shippingCost: dto.shippingCost ?? 0,
-      discountAmount: dto.discountAmount ?? 0,
-      totalAmount: dto.totalAmount,
-      currency: dto.currency ?? 'USD',
-      status: 'pending',
-    });
+    const reservation = JSON.parse(reservationRaw);
 
-    const savedOrder = await this.ordersRepo.save(order);
+    // Step 2: Validate ownership of reservation
+    if (reservation.userId !== userId) {
+      throw new NotFoundException('Reservation not found for this user');
+    }
 
-    // Create order item
-    const orderItem = this.orderItemsRepo.create();
-    orderItem.orderId = savedOrder.id;
-    orderItem.productId = dto.productId;
-    orderItem.productName = product.name;
-    orderItem.productDescription = product.description ?? null;
-    orderItem.productImage = product.image ?? null;
-    orderItem.selectedSize = dto.selectedSize ?? null;
-    orderItem.selectedColor = dto.selectedColor ?? null;
-    orderItem.unitPrice = product.price;
-    orderItem.quantity = dto.quantity;
-    orderItem.lineTotal = product.price * dto.quantity;
+    // Step 3: Prevent duplicate order creation for the same reservation (atomic lock)
+    const lockKey = `lock:order:${reservationId}`;
+    const lockValue = `${userId}-${Date.now()}`; // Unique lock value for safe release
+    const lockAcquired = await this.redisService.acquireLock(lockKey, lockValue, 30);
 
-    await this.orderItemsRepo.save(orderItem);
+    if (!lockAcquired) {
+      throw new NotFoundException(
+        'Order is already being created for this reservation',
+      );
+    }
 
-    return savedOrder;
+    try {
+      return await this.dataSource.transaction(async (manager) => {
+        // Step 4: Check if order already exists for this reservation (idempotency check)
+        const existing = await manager.findOne(Order, {
+          where: { reservationId },
+        });
+
+        if (existing) {
+          return existing; // Return existing order if found
+        }
+
+        // Step 5: Compute total amount
+        let totalAmount = 0;
+        const orderItems: Partial<OrderItem>[] = reservation.items.map(
+          (item: any) => {
+            const totalPrice = item.unitPrice * item.quantity;
+            totalAmount += totalPrice;
+
+            return {
+              productId: item.productId,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              totalPrice,
+            };
+          },
+        );
+
+        // Step 6: Create order with totalAmount
+        const order = manager.create(Order, {
+          orderNumber: this.generateOrderNumber(),
+          userId,
+          reservationId,
+          customerEmail: dto.customerEmail,
+          customerPhone: dto.customerPhone,
+          totalAmount, // ✅ Fixed: Include computed totalAmount
+          currency: 'INR',
+          status: 'PENDING',
+        });
+
+        const savedOrder = await manager.save(order);
+
+        // Step 7: Save order items
+        const itemsToSave = orderItems.map((item) =>
+          manager.create(OrderItem, {
+            ...item,
+            orderId: savedOrder.id,
+          }),
+        );
+        await manager.save(OrderItem, itemsToSave);
+
+        // Step 8: Delete reservation
+        await this.redisService.del(reservationId);
+
+        return savedOrder;
+      });
+    } finally {
+      // Safe lock release - only releases if we still own the lock
+      await this.redisService.releaseLock(lockKey, lockValue);
+    }
   }
+  
 
   async findAll(limit = 50): Promise<Order[]> {
     return this.ordersRepo.find({
@@ -81,68 +123,68 @@ export class OrderService {
       where: { id },
       relations: ['items', 'payments', 'user'],
     });
-    
+
     if (!order) {
       throw new NotFoundException('Order not found');
     }
-    
+
     return order;
   }
 
   async update(id: string, dto: UpdateOrderDto): Promise<Order> {
     const order = await this.findOne(id);
 
-    if (dto.customerEmail !== undefined) {
-      order.customerEmail = dto.customerEmail;
-    }
+    // if (dto.customerEmail !== undefined) {
+    //   order.customerEmail = dto.customerEmail;
+    // }
 
-    if (dto.customerPhone !== undefined) {
-      order.customerPhone = dto.customerPhone;
-    }
+    // if (dto.customerPhone !== undefined) {
+    //   order.customerPhone = dto.customerPhone;
+    // }
 
-    if (dto.shippingFirstName !== undefined) {
-      order.shippingFirstName = dto.shippingFirstName;
-    }
+    // if (dto.shippingFirstName !== undefined) {
+    //   order.shippingFirstName = dto.shippingFirstName;
+    // }
 
-    if (dto.shippingLastName !== undefined) {
-      order.shippingLastName = dto.shippingLastName;
-    }
+    // if (dto.shippingLastName !== undefined) {
+    //   order.shippingLastName = dto.shippingLastName;
+    // }
 
-    if (dto.shippingAddressLine1 !== undefined) {
-      order.shippingAddressLine1 = dto.shippingAddressLine1;
-    }
+    // if (dto.shippingAddressLine1 !== undefined) {
+    //   order.shippingAddressLine1 = dto.shippingAddressLine1;
+    // }
 
-    if (dto.shippingAddressLine2 !== undefined) {
-      order.shippingAddressLine2 = dto.shippingAddressLine2;
-    }
+    // if (dto.shippingAddressLine2 !== undefined) {
+    //   order.shippingAddressLine2 = dto.shippingAddressLine2;
+    // }
 
-    if (dto.shippingCity !== undefined) {
-      order.shippingCity = dto.shippingCity;
-    }
+    // if (dto.shippingCity !== undefined) {
+    //   order.shippingCity = dto.shippingCity;
+    // }
 
-    if (dto.shippingState !== undefined) {
-      order.shippingState = dto.shippingState;
-    }
+    // if (dto.shippingState !== undefined) {
+    //   order.shippingState = dto.shippingState;
+    // }
 
-    if (dto.shippingPostalCode !== undefined) {
-      order.shippingPostalCode = dto.shippingPostalCode;
-    }
+    // if (dto.shippingPostalCode !== undefined) {
+    //   order.shippingPostalCode = dto.shippingPostalCode;
+    // }
 
-    if (dto.shippingCountry !== undefined) {
-      order.shippingCountry = dto.shippingCountry;
-    }
+    // if (dto.shippingCountry !== undefined) {
+    //   order.shippingCountry = dto.shippingCountry;
+    // }
 
-    if (dto.sameAsShipping !== undefined) {
-      order.sameAsShipping = dto.sameAsShipping;
-    }
+    // if (dto.sameAsShipping !== undefined) {
+    //   order.sameAsShipping = dto.sameAsShipping;
+    // }
 
-    if (dto.notes !== undefined) {
-      order.notes = dto.notes;
-    }
+    // if (dto.notes !== undefined) {
+    //   order.notes = dto.notes;
+    // }
 
-    if (dto.specialInstructions !== undefined) {
-      order.specialInstructions = dto.specialInstructions;
-    }
+    // if (dto.specialInstructions !== undefined) {
+    //   order.specialInstructions = dto.specialInstructions;
+    // }
 
     return this.ordersRepo.save(order);
   }
@@ -159,4 +201,3 @@ export class OrderService {
     return `ORD-${year}-${timestamp}`;
   }
 }
-

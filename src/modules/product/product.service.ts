@@ -5,7 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -15,6 +15,7 @@ import {
   Reservation,
   ReservationStatus,
 } from '../inventory/entities/reservation.entity';
+import { ReservationItemDTO } from './dto/reservation-item.dto';
 
 @Injectable()
 export class ProductService {
@@ -244,5 +245,190 @@ export class ProductService {
     }
 
     return result;
+  }
+
+  // Reserves stock for a purchase. Throws exception if not enough stock.
+  async buyV2(
+    userId: string,
+    items: ReservationItemDTO[],
+  ): Promise<{
+    success: boolean;
+    reservationId: string;
+    expireAt: Date;
+  }> {
+    const reservationMinutes = 10;
+    let reservationSnapshot: any;
+
+    // 1. Main DB Transaction (Source of Truth)
+    const result = await this.dataSource.transaction(async (manager) => {
+      const productRepo = manager.getRepository(Product);
+      const reservationRepo = manager.getRepository(Reservation);
+
+      // 1. Validate Product
+      const productIds = items.map((i) => i.productId);
+
+      const products = await productRepo.find({
+        where: { id: In(productIds) },
+        select: ['id', 'isActive'],
+      });
+
+      const productMap = new Map(products.map((p) => [p.id, p]));
+
+      // 2. Validate all products
+      for (const item of items) {
+        const product = productMap.get(item.productId);
+
+        if (!product || !product.isActive) {
+          throw new ConflictException(
+            `Product ${item.productId} is not available`,
+          );
+        }
+      }
+
+      // 3. Reserve Stock for all items (same transaction)
+      for (const item of items) {
+        const inventory = await this.inventoryService.reserveStockTx(
+          manager,
+          item.productId,
+          item.quantity,
+        );
+
+        if (!inventory.success) {
+          throw new ConflictException({
+            code: 'OUT_OF_STOCK',
+            message: `Only ${inventory.availableStock} items available for ${item.productId}`,
+            availableStock: inventory.availableStock,
+          });
+        }
+      }
+
+      // 4. Create DB reservation (minimal)
+      const expireAt = new Date(Date.now() + reservationMinutes * 60 * 1000);
+      const reservation = reservationRepo.create({
+        userId,
+        status: ReservationStatus.ACTIVE,
+        expiresAt: expireAt,
+      });
+
+      await reservationRepo.save(reservation);
+
+      // 5. Build Redis snapshot (core logic)
+      let totalAmount = 0;
+
+      const itemsSnapshot = items.map((item) => {
+        const product = productMap.get(item.productId)!;
+
+        const unitPrice = Number(product?.price);
+        const totalPrice = unitPrice * item.quantity;
+
+        totalAmount += totalPrice;
+
+        return {
+          productId: item.productId,
+          productName: product.name,
+          quantity: item.quantity,
+          unitPrice,
+          totalPrice,
+        };
+      });
+
+      reservationSnapshot = {
+        reservationId: reservation.id,
+        userId,
+
+        items: itemsSnapshot,
+
+        totalAmount,
+        currency: 'INR',
+
+        createdAt: Date.now(),
+        expireAt: expireAt.getTime(),
+
+        version: 1,
+      };
+
+      return {
+        success: true,
+        reservationId: reservation.id,
+        expireAt,
+      };
+    });
+
+    // 6. Cache Reservation in Redis (for quick access and expiration handling)
+    // Key format: r:{reservationId} = reservation details
+    try {
+      await this.redisService.set(
+        `r:${result.reservationId}`,
+        JSON.stringify(reservationSnapshot),
+        reservationMinutes * 60,
+      );
+
+      // 3. Invalidate availability cache for all products
+      const productIds = items.map((i) => i.productId);
+      const keys = productIds.map((id) => `p:${id}:a`);
+
+      if (keys.length) {
+        await this.redisService.del(...keys);
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        this.logger.warn(
+          `Redis sync failed for reservation ${result.reservationId}`,
+          error.stack,
+        );
+      } else {
+        this.logger.warn(
+          `Redis sync failed for reservation ${result.reservationId}`,
+          String(error),
+        );
+      }
+    }
+
+    return result;
+  }
+
+  // Validate and confirm a reservation (called when user completes checkout)
+  async validateReservation(reservationId: string): Promise<{
+    success: boolean;
+    message?: string;
+  }> {
+    // 1. Check Redis (fast path)
+    const cached = await this.redisService.get(`r:${reservationId}`);
+
+    if (!cached) {
+      return {
+        success: false,
+        message: 'Reservation expired',
+      };
+    }
+
+    const reservationData = JSON.parse(cached);
+
+    // 2. Validate expiry
+    if (new Date(reservationData.expireAt) < new Date()) {
+      return {
+        success: false,
+        message: 'Reservation expired',
+      };
+    }
+
+    // 3. Optional: DB check (safety only)
+    const reservation = await this.dataSource
+      .getRepository(Reservation)
+      .findOne({
+        where: {
+          id: reservationId,
+          status: ReservationStatus.ACTIVE,
+        },
+      });
+
+    if (!reservation) {
+      return {
+        success: false,
+        message: 'Invalid reservation',
+      };
+    }
+
+    return { success: true };
   }
 }

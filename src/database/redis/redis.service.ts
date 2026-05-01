@@ -27,8 +27,8 @@ export class RedisService {
     /**
      * Deletes a value from Redis
      */
-    async del(key: string): Promise<number> {
-        return this.redisClient.del(key);
+    async del(...keys: string[]): Promise<number> {
+        return this.redisClient.del(keys);
     }
 
     /**
