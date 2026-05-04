@@ -13,6 +13,7 @@ import {
 import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ReservationItemDTO } from './dto/reservation-item.dto';
 import { ResponseService } from 'src/common/services/response-service';
 import { Public } from 'src/common/decorators/public.decorator';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
@@ -91,19 +92,37 @@ export class ProductController {
   }
 
   // =========================================
-  // BUY PRODUCT - Reserves stock
+  // BUY PRODUCT V2 - Reserves stock with multiple items
   // =========================================
-  @Post(':id/buy')
+  @Post('buy')
   @HttpCode(HttpStatus.OK)
-  async buy(
-    @Param('id') id: string,
-    @Body('quantity') quantity: number,
+  async buyV2(
+    @Body('items') items: ReservationItemDTO[],
     @CurrentUser() user: User,
   ) {
-    const result = await this.productService.buy(user.id, id, quantity);
+    const result = await this.productService.buyV2(user.id, items);
     return this.responseService.success(
       result,
-      'Product purchased successfully',
+      'Reservation created successfully',
+    );
+  }
+
+  // =========================================
+  // GET RESERVATION - Fetch reservation details by ID
+  // =========================================
+  @Get('reservations/:reservationId')
+  @HttpCode(HttpStatus.OK)
+  async getReservation(
+    @Param('reservationId') reservationId: string,
+    @CurrentUser() user: User,
+  ) {
+    const reservation = await this.productService.getReservation(
+      reservationId,
+      user.id,
+    );
+    return this.responseService.success(
+      reservation,
+      'Reservation retrieved successfully',
     );
   }
 

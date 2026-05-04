@@ -80,7 +80,7 @@ export class UsersService {
     async validateRefreshToken(userId: string, refreshToken: string): Promise<boolean> {
         const user = await this.usersRepository.findOne({
             where: { id: userId },
-            select: ['hashedRefreshToken'],
+            select: ['id', 'hashedRefreshToken'],
         });
 
         if (!user?.hashedRefreshToken) return false;

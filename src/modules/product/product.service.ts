@@ -148,106 +148,6 @@ export class ProductService {
   }
 
   // Reserves stock for a purchase. Throws exception if not enough stock.
-  async buy(
-    userId: string,
-    productId: string,
-    quantity: number,
-  ): Promise<{
-    success: boolean;
-    availableStock: number;
-  }> {
-    const reservationMinutes = 10;
-
-    // 1. Main DB Transaction (Source of Truth)
-    const result = await this.dataSource.transaction(async (manager) => {
-      const productRepo = manager.getRepository(Product);
-      const reservationRepo = manager.getRepository(Reservation);
-
-      // 1. Validate Product
-      const product = await productRepo.findOne({
-        where: { id: productId },
-        select: ['id', 'isActive'],
-      });
-
-      if (!product || !product.isActive) {
-        throw new ConflictException('Product is not available');
-      }
-
-      // Reserve Inventory Atomically
-      const inventory = await this.inventoryService.reserveStockTx(
-        manager,
-        productId,
-        quantity,
-      );
-
-      if (!inventory.success) {
-        throw new ConflictException({
-          code: 'OUT_OF_STOCK',
-          message: `Only ${inventory.availableStock} items available`,
-          availableStock: inventory.availableStock,
-        });
-        // return {
-        //   success: false,
-        //   availableStock: inventory.availableStock,
-        //   message: `Only ${inventory.availableStock} items available`,
-        // };
-      }
-
-      // Create a Reservation Row
-      const expireAt = new Date(Date.now() + reservationMinutes * 60 * 1000);
-      const reservation = reservationRepo.create({
-        userId,
-        productId,
-        quantity,
-        status: ReservationStatus.ACTIVE,
-        expiresAt: expireAt,
-      });
-
-      await reservationRepo.save(reservation);
-
-      return {
-        success: true,
-        reservationId: reservation.id,
-        expireAt,
-        availableStock: inventory.availableStock,
-      };
-    });
-
-    // 2. Cache Reservation in Redis (for quick access and expiration handling)
-    // Key format: r:{reservationId} = reservation details
-    try {
-      await this.redisService.set(
-        `r:${result.reservationId}`,
-        JSON.stringify({
-          reservationId: result.reservationId,
-          userId,
-          productId,
-          quantity,
-          expireAt: result.expireAt,
-        }),
-        reservationMinutes * 60,
-      );
-
-      // 3. Invalidate availability cache for the product
-      await this.redisService.del(`p:${productId}:a`);
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        this.logger.warn(
-          `Redis sync failed for reservation ${result.reservationId}`,
-          error.stack,
-        );
-      } else {
-        this.logger.warn(
-          `Redis sync failed for reservation ${result.reservationId}`,
-          String(error),
-        );
-      }
-    }
-
-    return result;
-  }
-
-  // Reserves stock for a purchase. Throws exception if not enough stock.
   async buyV2(
     userId: string,
     items: ReservationItemDTO[],
@@ -302,35 +202,39 @@ export class ProductService {
         }
       }
 
-      // 4. Create DB reservation (minimal)
-      const expireAt = new Date(Date.now() + reservationMinutes * 60 * 1000);
-      const reservation = reservationRepo.create({
-        userId,
-        status: ReservationStatus.ACTIVE,
-        expiresAt: expireAt,
-      });
-
-      await reservationRepo.save(reservation);
-
-      // 5. Build Redis snapshot (core logic)
+      // 4. Build items snapshot (core logic)
       let totalAmount = 0;
 
+      // Issue - below has some issue related to injection of price
       const itemsSnapshot = items.map((item) => {
         const product = productMap.get(item.productId)!;
 
-        const unitPrice = Number(product?.price);
+        const unitPrice = Number(item?.unitPrice);
         const totalPrice = unitPrice * item.quantity;
 
         totalAmount += totalPrice;
 
         return {
           productId: item.productId,
-          productName: product.name,
+          productName: item.productName,
           quantity: item.quantity,
           unitPrice,
           totalPrice,
+          selectedSize: item.selectedSize || null,
+          selectedColor: item.selectedColor || null,
         };
       });
+
+      // 5. Create DB reservation
+      const expireAt = new Date(Date.now() + reservationMinutes * 60 * 1000);
+      const reservation = reservationRepo.create({
+        userId,
+        status: ReservationStatus.ACTIVE,
+        expiresAt: expireAt,
+        items: itemsSnapshot, // Save items in DB to allow stock release on expiration
+      });
+
+      await reservationRepo.save(reservation);
 
       reservationSnapshot = {
         reservationId: reservation.id,
@@ -430,5 +334,79 @@ export class ProductService {
     }
 
     return { success: true };
+  }
+
+  /**
+   * Get reservation details by ID
+   * Fetches from Redis cache for quick access
+   */
+  async getReservation(
+    reservationId: string,
+    userId: string,
+  ): Promise<{
+    reservationId: string;
+    userId: string;
+    items: Array<{
+      productId: string;
+      productName: string;
+      quantity: number;
+      unitPrice: number;
+      totalPrice: number;
+    }>;
+    totalAmount: number;
+    currency: string;
+    createdAt: number;
+    expireAt: number;
+    version: number;
+  }> {
+    // 1. Try to get from Redis first (fast path)
+    const redisKey = `r:${reservationId}`;
+    const cached = await this.redisService.get(redisKey);
+
+    if (cached) {
+      const reservation = JSON.parse(cached);
+
+      // Verify ownership
+      if (reservation.userId !== userId) {
+        throw new ConflictException('Unauthorized access to reservation');
+      }
+
+      // Check if expired
+      if (Date.now() > reservation.expireAt) {
+        throw new ConflictException('Reservation has expired');
+      }
+
+      return reservation;
+    }
+
+    // 2. If not in Redis, check DB (fallback)
+    const dbReservation = await this.dataSource
+      .getRepository(Reservation)
+      .findOne({
+        where: {
+          id: reservationId,
+          userId,
+          status: ReservationStatus.ACTIVE,
+        },
+      });
+
+    if (!dbReservation) {
+      throw new ConflictException('Reservation not found or expired');
+    }
+
+    // Check if expired
+    if (new Date() > dbReservation.expiresAt) {
+      throw new ConflictException('Reservation has expired');
+    }
+
+    // Note: If we reach here, Redis cache was lost but DB reservation exists
+    // This is a degraded state - we should log it
+    this.logger.warn(
+      `Reservation ${reservationId} found in DB but not in Redis cache`,
+    );
+
+    throw new ConflictException(
+      'Reservation data temporarily unavailable. Please try again.',
+    );
   }
 }

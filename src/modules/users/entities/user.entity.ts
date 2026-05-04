@@ -2,9 +2,9 @@ import { Column, Entity, OneToMany } from 'typeorm';
 import { Exclude } from 'class-transformer';
 import { BaseEntity } from '../../../database/entities/base.entity';
 import { Role } from '../../../common/enums/role.enum';
-import { Address } from 'src/modules/address/entities/address.entity';
-import { Order } from 'src/modules/order/entities/order.entity';
-import { Favorite } from 'src/modules/favorite/entities/favorite.entity';
+import { Address } from '../../address/entities/address.entity';
+import { Order } from '../../order/entities/order.entity';
+import { Favorite } from '../../favorite/entities/favorite.entity';
 
 @Entity('users')
 export class User extends BaseEntity {

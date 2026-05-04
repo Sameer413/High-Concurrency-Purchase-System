@@ -9,12 +9,14 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import configuration from './config/configuration';
 import { DatabaseModule } from './database/database.module';
 import { RedisModule } from './database/redis/redis.module';
+import { ScheduleModule } from '@nestjs/schedule';
 import { CommonModule } from './common/common.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { OrderModule } from './modules/order/order.module';
 import { ProductModule } from './modules/product/product.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
+import { PaymentModule } from './modules/payment/payment.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
@@ -37,6 +39,7 @@ import { CartModule } from './modules/cart/cart.module';
     // Database
     DatabaseModule,
     RedisModule,
+    ScheduleModule.forRoot(),
 
     // Common utilities (ResponseService, etc.)
     CommonModule,
@@ -47,6 +50,7 @@ import { CartModule } from './modules/cart/cart.module';
     ProductModule,
     OrderModule,
     InventoryModule,
+    PaymentModule,
     AddressModule,
     FavoriteModule,
     CartModule,

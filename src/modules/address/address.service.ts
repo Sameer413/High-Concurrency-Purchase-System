@@ -6,7 +6,6 @@ import { Address } from './entities/address.entity';
 import { CreateAddressDto } from './dto/create-address-dto';
 import { UpdateAddressDto } from './dto/update-address-dto';
 
-
 @Injectable()
 export class AddressService {
   constructor(
@@ -15,9 +14,9 @@ export class AddressService {
   ) {}
 
   async create(userId: string, dto: CreateAddressDto): Promise<Address> {
-    if (dto.isDefault) {
-      await this.clearDefault(userId);
-    }
+    // if (dto.isDefault) {
+    //   // await this.clearDefault(userId);
+    // }
 
     const address = this.addressRepo.create({
       ...dto,
@@ -30,7 +29,7 @@ export class AddressService {
   async findAll(userId: string): Promise<Address[]> {
     return this.addressRepo.find({
       where: { userId },
-      order: { isDefault: 'DESC', createdAt: 'DESC' },
+      // order: { isDefault: 'DESC', createdAt: 'DESC' },
     });
   }
 
@@ -53,9 +52,9 @@ export class AddressService {
   ): Promise<Address> {
     const address = await this.findOne(userId, id);
 
-    if (dto.isDefault) {
-      await this.clearDefault(userId);
-    }
+    // if (dto.isDefault) {
+    //   await this.clearDefault(userId);
+    // }
 
     Object.assign(address, dto);
 
@@ -70,19 +69,19 @@ export class AddressService {
     return { deleted: true };
   }
 
-  async setDefault(userId: string, id: string): Promise<Address> {
-    await this.clearDefault(userId);
+  // async setDefault(userId: string, id: string): Promise<Address> {
+  //   await this.clearDefault(userId);
 
-    const address = await this.findOne(userId, id);
-    address.isDefault = true;
+  //   const address = await this.findOne(userId, id);
+  //   address.isDefault = true;
 
-    return this.addressRepo.save(address);
-  }
+  //   return this.addressRepo.save(address);
+  // }
 
-  private async clearDefault(userId: string): Promise<void> {
-    await this.addressRepo.update(
-      { userId, isDefault: true },
-      { isDefault: false },
-    );
-  }
+  // private async clearDefault(userId: string): Promise<void> {
+  //   await this.addressRepo.update(
+  //     { userId, isDefault: true },
+  //     { isDefault: false },
+  //   );
+  // }
 }

@@ -12,8 +12,8 @@ import { OrderItem } from './order-item.entity';
 // import { OrderShipment } from './order-shipment.entity';
 // import { OrderDiscount } from './order-discount.entity';
 // import { OrderNote } from './order-note.entity';
-import { BaseEntity } from 'src/database/entities/base.entity';
-import { Payment } from 'src/modules/payment/entities/payment.entity';
+import { BaseEntity } from '../../../database/entities/base.entity';
+import { Payment } from '../../payment/entities/payment.entity';
 
 @Entity('orders')
 export class Order extends BaseEntity {
@@ -33,7 +33,7 @@ export class Order extends BaseEntity {
 
   // 🔥 Keep status simple but controlled
   @Column({ default: 'PENDING' })
-  status!: 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED';
+  status!: 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED' | 'NEEDS_REFUND';
 
   // 🔥 Core pricing
   @Column('decimal', { precision: 10, scale: 2 })

@@ -18,7 +18,7 @@ export class CreateAddressDto {
   // line2?: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   landmark!: string;
 
   @IsString()

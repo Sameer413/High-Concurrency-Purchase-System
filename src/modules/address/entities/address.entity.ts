@@ -1,5 +1,5 @@
-import { BaseEntity } from 'src/database/entities/base.entity';
-import { User } from 'src/modules/users/entities/user.entity';
+import { BaseEntity } from '../../../database/entities/base.entity';
+import { User } from '../../users/entities/user.entity';
 import { Entity, Column, ManyToOne, Index } from 'typeorm';
 
 @Entity('addresses')

@@ -15,6 +15,8 @@ export type ReservationItemDTO = {
 
   // Optional: variant info
   variantId?: string;
+  selectedSize?: string;
+  selectedColor?: string;
 
   // 🔥 Pricing integrity
   totalPrice: number;

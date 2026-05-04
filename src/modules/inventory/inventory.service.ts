@@ -59,12 +59,6 @@ export class InventoryService {
     success: boolean;
     availableStock: number;
   }> {
-    // First, lock the row to prevent concurrent modifications
-    // await manager.query(
-    //   `SELECT * FROM inventory WHERE "productId" = $1 FOR UPDATE`,
-    //   [productId],
-    // );
-
     const result = await manager.query(
       `
       UPDATE inventory
@@ -80,9 +74,6 @@ export class InventoryService {
     // 🔥 normalize response
     const rows = Array.isArray(result[0]) ? result[0] : result;
 
-    console.log(rows);
-    console.log(rows.length);
-
     if (rows.length === 0) {
       const stock = await manager.query(
         `
@@ -94,32 +85,18 @@ export class InventoryService {
       );
 
       const row = stock[0] || {};
-      // const tStock = Number(
-      //   row.totalStock ?? row.totalstock ?? row.total_stock ?? 0,
-      // );
-      // const rStock = Number(
-      //   row.reservedStock ?? row.reservedstock ?? row.reserved_stock ?? 0,
-      // );
 
       return {
         success: false,
-        // availableStock: tStock - rStock,
         availableStock:
           Number(row.totalStock || 0) - Number(row.reservedStock || 0),
       };
     }
 
     const row = rows[0];
-    // const tStock = Number(
-    //   row.totalStock ?? row.totalstock ?? row.total_stock ?? 0,
-    // );
-    // const rStock = Number(
-    //   row.reservedStock ?? row.reservedstock ?? row.reserved_stock ?? 0,
-    // );
 
     return {
       success: true,
-      // availableStock: tStock - rStock,
       availableStock: Number(row.totalStock) - Number(row.reservedStock),
     };
   }
@@ -159,31 +136,43 @@ export class InventoryService {
   }
 
   // -----------------------------------
-  // CONFIRM SALE
+  // CONFIRM SALE (Transaction-safe version)
+  // -----------------------------------
+  async confirmSaleTx(
+    manager: EntityManager,
+    productId: string,
+    quantity: number,
+  ): Promise<void> {
+    const result = await manager.query(
+      `
+      UPDATE inventory
+      SET "reservedStock" = "reservedStock" - $2,
+          "totalStock" = "totalStock" - $2,
+          "soldStock" = "soldStock" + $2,
+          "updatedAt" = NOW()
+      WHERE "productId" = $1
+      AND "reservedStock" >= $2
+      RETURNING "totalStock"
+      `,
+      [productId, quantity],
+    );
+
+    const rows = Array.isArray(result[0]) ? result[0] : result;
+
+    if (rows.length === 0) {
+      throw new BadRequestException('Not enough reserved stock');
+    }
+
+    const row = rows[0];
+    await this.syncProductStock(manager, productId, row.totalStock);
+  }
+
+  // -----------------------------------
+  // CONFIRM SALE (Standalone)
   // -----------------------------------
   async confirmSale(productId: string, quantity: number): Promise<Inventory> {
     return this.dataSource.transaction(async (manager) => {
-      const rows = await manager.query(
-        `
-        UPDATE inventory
-        SET "reservedStock" = "reservedStock" - $2,
-            "totalStock" = "totalStock" - $2,
-            "soldStock" = "soldStock" + $2,
-            "updatedAt" = NOW()
-        WHERE "productId" = $1
-        AND "reservedStock" >= $2
-        RETURNING *
-        `,
-        [productId, quantity],
-      );
-
-      if (rows.length === 0) {
-        throw new BadRequestException('Not enough reserved stock');
-      }
-
-      const inventory = rows[0];
-
-      await this.syncProductStock(manager, productId, inventory.totalStock);
+      await this.confirmSaleTx(manager, productId, quantity);
 
       return manager.findOneOrFail(Inventory, {
         where: { productId },

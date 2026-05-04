@@ -14,14 +14,13 @@ export class JwtRefreshStrategy extends PassportStrategy(Strategy, 'jwt-refresh'
     ) {
         super({
             /**
-             * Refresh token extracted from:
-             *  1. Authorization: Bearer <refresh_token> header
-             *  2. refresh_token HTTP-only cookie
+             * Refresh token extracted from the HTTP-only `refresh_token` cookie.
+             * Cookie-based only – no Authorization header fallback.
              */
             jwtFromRequest: ExtractJwt.fromExtractors([
-                ExtractJwt.fromAuthHeaderAsBearerToken(),
                 (req: Request): string | null => {
-                    return (req?.cookies?.refresh_token as string) ?? null;
+                    const token = req?.cookies?.refresh_token;
+                    return typeof token === 'string' && token.length > 0 ? token : null;
                 },
             ]),
             ignoreExpiration: false,
@@ -31,13 +30,11 @@ export class JwtRefreshStrategy extends PassportStrategy(Strategy, 'jwt-refresh'
     }
 
     async validate(req: Request, payload: JwtPayload) {
-        // Extract raw refresh token from cookie or header
-        const refreshToken =
-            (req.cookies?.refresh_token as string) ??
-            req.headers.authorization?.replace('Bearer ', '');
+        // Read the raw refresh token directly from the cookie
+        const refreshToken = req.cookies?.refresh_token as string | undefined;
 
         if (!refreshToken) {
-            throw new UnauthorizedException('Refresh token not provided');
+            throw new UnauthorizedException('Refresh token cookie not found');
         }
 
         const isValid = await this.usersService.validateRefreshToken(payload.sub, refreshToken);

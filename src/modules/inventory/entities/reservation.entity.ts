@@ -11,19 +11,22 @@ export enum ReservationStatus {
 @Entity('reservations')
 export class Reservation extends BaseEntity {
   @Index()
-  @Column({ type: 'uuid' })
-  productId!: string;
+  @Column({ type: 'uuid', nullable: true })
+  productId?: string;
 
   @ManyToOne(() => Product, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'productId' })
-  product!: Product;
+  product?: Product;
 
   @Index()
   @Column({ type: 'uuid' })
   userId!: string;
 
-  @Column({ type: 'int' })
-  quantity!: number;
+  @Column({ type: 'int', nullable: true })
+  quantity?: number;
+
+  @Column({ type: 'jsonb', nullable: true })
+  items?: any;
 
   @Column({
     type: 'enum',

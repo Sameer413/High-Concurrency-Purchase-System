@@ -45,7 +45,7 @@ export class AddressController {
 
   @Patch(':id/default')
   setDefault(@CurrentUser('id') userId: string, @Param('id') id: string) {
-    return this.addressService.setDefault(userId, id);
+    // return this.addressService.setDefault(userId, id);
   }
 
   @Delete(':id')

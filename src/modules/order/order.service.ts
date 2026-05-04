@@ -25,7 +25,7 @@ export class OrderService {
     const { reservationId } = dto;
 
     // Step 1: Get reservation from Redis
-    const reservationRaw = await this.redisService.get(reservationId);
+    const reservationRaw = await this.redisService.get(`r:${reservationId}`);
     if (!reservationRaw) {
       throw new NotFoundException('Reservation not found');
     }
@@ -40,7 +40,11 @@ export class OrderService {
     // Step 3: Prevent duplicate order creation for the same reservation (atomic lock)
     const lockKey = `lock:order:${reservationId}`;
     const lockValue = `${userId}-${Date.now()}`; // Unique lock value for safe release
-    const lockAcquired = await this.redisService.acquireLock(lockKey, lockValue, 30);
+    const lockAcquired = await this.redisService.acquireLock(
+      lockKey,
+      lockValue,
+      30,
+    );
 
     if (!lockAcquired) {
       throw new NotFoundException(
@@ -68,9 +72,12 @@ export class OrderService {
 
             return {
               productId: item.productId,
+              productName: item.productName, // ✅ Include productName
               quantity: item.quantity,
               unitPrice: item.unitPrice,
               totalPrice,
+              selectedSize: item.selectedSize || null, // ✅ Include selectedSize
+              selectedColor: item.selectedColor || null, // ✅ Include selectedColor
             };
           },
         );
@@ -99,7 +106,7 @@ export class OrderService {
         await manager.save(OrderItem, itemsToSave);
 
         // Step 8: Delete reservation
-        await this.redisService.del(reservationId);
+        await this.redisService.del(`r:${reservationId}`);
 
         return savedOrder;
       });
@@ -108,7 +115,6 @@ export class OrderService {
       await this.redisService.releaseLock(lockKey, lockValue);
     }
   }
-  
 
   async findAll(limit = 50): Promise<Order[]> {
     return this.ordersRepo.find({

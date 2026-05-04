@@ -5,8 +5,8 @@ import {
     JoinColumn,
 } from 'typeorm';
 import { Payment } from './payment.entity';
-import { BaseEntity } from 'src/database/entities/base.entity';
-import { Order } from 'src/modules/order/entities/order.entity';
+import { BaseEntity } from '../../../database/entities/base.entity';
+import { Order } from '../../order/entities/order.entity';
 
 @Entity('payment_refunds')
 export class PaymentRefund extends BaseEntity {

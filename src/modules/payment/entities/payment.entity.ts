@@ -1,7 +1,7 @@
-import { Entity, Column, ManyToOne, OneToMany, JoinColumn } from 'typeorm';
+import { Entity, Column, ManyToOne, OneToMany, JoinColumn, Index } from 'typeorm';
 import { PaymentRefund } from './payment-refund.entity';
-import { BaseEntity } from 'src/database/entities/base.entity';
-import { Order } from 'src/modules/order/entities/order.entity';
+import { BaseEntity } from '../../../database/entities/base.entity';
+import { Order } from '../../order/entities/order.entity';
 
 export enum PaymentStatus {
   CREATED = 'CREATED',
@@ -13,7 +13,6 @@ export enum PaymentStatus {
 
 @Entity('payments')
 export class Payment extends BaseEntity {
-  //   @Index()
   @Column('uuid')
   orderId!: string;
 
@@ -22,20 +21,25 @@ export class Payment extends BaseEntity {
   order!: Order;
 
   // 🔥 Idempotency (VERY IMPORTANT)
-  @Column({ nullable: true })
-  idempotencyKey!: string;
+  // Unique index to prevent duplicate payments with same idempotency key
+  @Index('idx_payments_idempotency_key', { 
+    unique: true, 
+    where: '"idempotencyKey" IS NOT NULL' 
+  })
+  @Column({ type: 'varchar', nullable: true, length: 255 })
+  idempotencyKey!: string | null;
 
   // 🔥 Razorpay fields (IMPORTANT)
-  //   @Index({ unique: true })
-  @Column()
+  @Index()
+  @Column({ type: 'varchar' })
   razorpayOrderId!: string;
 
-  //   @Index({ unique: true, nullable: true })
-  @Column({ nullable: true })
-  razorpayPaymentId!: string;
+  @Index()
+  @Column({ type: 'varchar', nullable: true })
+  razorpayPaymentId!: string | null;
 
-  @Column({ nullable: true })
-  razorpaySignature!: string;
+  @Column({ type: 'varchar', nullable: true })
+  razorpaySignature!: string | null;
 
   // 💰 money
   @Column('decimal', { precision: 10, scale: 2 })
@@ -53,8 +57,8 @@ export class Payment extends BaseEntity {
   status!: PaymentStatus;
 
   // 💳 method (UPI, card, etc.)
-  @Column({ nullable: true })
-  method!: string;
+  @Column({ type: 'varchar', nullable: true })
+  method!: string | null;
 
   // 🧾 optional metadata
   @Column({ type: 'jsonb', nullable: true })

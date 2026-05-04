@@ -20,7 +20,12 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "seed": "ts-node -r tsconfig-paths/register src/seed-products.ts",
     "seed:inventory": "ts-node -r tsconfig-paths/register src/seed-inventory.ts",
-    "seed:all": "npm run seed && npm run seed:inventory"
+    "seed:all": "npm run seed && npm run seed:inventory",
+    "migration:run": "ts-node -r tsconfig-paths/register run-migration.ts",
+    "migration:revert": "ts-node -r tsconfig-paths/register -e \"require('./src/database/data-source').AppDataSource.initialize().then(ds => ds.undoLastMigration()).then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); })\"",
+    "migration:show": "ts-node -r tsconfig-paths/register -e \"require('./src/database/data-source').AppDataSource.initialize().then(ds => ds.showMigrations()).then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); })\"",
+    "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/database/data-source.ts",
+    "migration:create": "typeorm-ts-node-commonjs migration:create"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -30,6 +35,7 @@
     "@nestjs/mapped-types": "^2.1.0",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/schedule": "^6.1.3",
     "@nestjs/typeorm": "^11.0.0",
     "@sentry/nestjs": "^10.43.0",
     "@sentry/node": "^10.43.0",
