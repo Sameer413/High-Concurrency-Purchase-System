@@ -7,9 +7,15 @@ import { OrderService } from './order.service';
 import { CommonModule } from 'src/common/common.module';
 import { Product } from '../product/entities/product.entity';
 import { ProductModule } from '../product/product.module';
+import { QueueModule } from '../queue/queue.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Order, OrderItem, Product]), CommonModule, ProductModule],
+  imports: [
+    TypeOrmModule.forFeature([Order, OrderItem, Product]),
+    CommonModule,
+    ProductModule,
+    QueueModule, // Import QueueModule for email queue service
+  ],
   controllers: [OrderController],
   providers: [OrderService],
   exports: [OrderService],

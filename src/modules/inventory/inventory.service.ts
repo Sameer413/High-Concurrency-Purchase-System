@@ -38,6 +38,20 @@ export class InventoryService {
   }
 
   // -----------------------------------
+  // GET MULTIPLE INVENTORIES BY PRODUCT IDS
+  // -----------------------------------
+  async getByProductIds(productIds: string[]): Promise<Inventory[]> {
+    if (productIds.length === 0) {
+      return [];
+    }
+
+    return this.inventoryRepo
+      .createQueryBuilder('inventory')
+      .where('inventory.productId IN (:...productIds)', { productIds })
+      .getMany();
+  }
+
+  // -----------------------------------
   // CHECK AVAILABILITY
   // -----------------------------------
   async checkAvailability(
@@ -164,7 +178,6 @@ export class InventoryService {
     }
 
     const row = rows[0];
-    await this.syncProductStock(manager, productId, row.totalStock);
   }
 
   // -----------------------------------
@@ -203,8 +216,6 @@ export class InventoryService {
         where: { productId },
       });
 
-      await this.syncProductStock(manager, productId, inventory.totalStock);
-
       return inventory;
     });
   }
@@ -226,8 +237,6 @@ export class InventoryService {
         `,
         [productId, totalStock],
       );
-
-      await this.syncProductStock(manager, productId, totalStock);
 
       return manager.findOneOrFail(Inventory, {
         where: { productId },
@@ -264,16 +273,5 @@ export class InventoryService {
     };
   }
 
-  // -----------------------------------
-  // PRODUCT STOCK SYNC
-  // -----------------------------------
-  private async syncProductStock(
-    manager: EntityManager,
-    productId: string,
-    stock: number,
-  ) {
-    await manager.update(Product, productId, {
-      stock,
-    });
-  }
+
 }

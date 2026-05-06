@@ -4,7 +4,7 @@ import {
   NestModule,
   RequestMethod,
 } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import configuration from './config/configuration';
 import { DatabaseModule } from './database/database.module';
@@ -26,13 +26,17 @@ import { AuthInjectMiddleware } from './common/middleware/auth-inject.middleware
 import { AddressModule } from './modules/address/address.module';
 import { FavoriteModule } from './modules/favorite/favorite.module';
 import { CartModule } from './modules/cart/cart.module';
+import emailConfig from './config/email.config';
+import { EmailModule } from './modules/email/email.module';
+import { QueueModule } from './modules/queue/queue.module';
+import { BullModule } from "@nestjs/bullmq"
 
 @Module({
   imports: [
     // Global config loaded from .env
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [configuration],
+      load: [configuration, emailConfig],
       envFilePath: '.env',
     }),
 
@@ -44,6 +48,46 @@ import { CartModule } from './modules/cart/cart.module';
     // Common utilities (ResponseService, etc.)
     CommonModule,
 
+    // BullMQ - must be initialized before modules that use queues
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (cfg: ConfigService) => ({
+        connection: {
+          host: cfg.get<string>('redis.host'),
+          port: cfg.get<number>('redis.port'),
+          password: cfg.get<string>('redis.password') || undefined,
+          tls: cfg.get<boolean>('redis.tls') ? {
+            rejectUnauthorized: true,
+          } : undefined,
+          maxRetriesPerRequest: null, // Required for BullMQ
+          enableReadyCheck: false,
+          lazyConnect: false,
+          keepAlive: 30000,
+          connectTimeout: 10000,
+          retryStrategy: (times) => {
+            if (times > 10) {
+              return null; // Stop retrying after 10 attempts
+            }
+            return Math.min(times * 100, 3000);
+          },
+          reconnectOnError: (err) => {
+            const targetErrors = ['READONLY', 'ECONNRESET', 'ETIMEDOUT'];
+            return targetErrors.some(targetError => err.message.includes(targetError));
+          },
+        },
+        defaultJobOptions: {
+          attempts: 3, // Retry failed jobs 3 times
+          backoff: {
+            type: 'exponential',
+            delay: 2000, // Start with 2 second delay
+          },
+          removeOnComplete: true, // Clean up completed jobs
+          removeOnFail: false, // Keep failed jobs for debugging
+        },
+      })
+    }),
+
     // Feature modules
     AuthModule,
     UsersModule,
@@ -54,6 +98,8 @@ import { CartModule } from './modules/cart/cart.module';
     AddressModule,
     FavoriteModule,
     CartModule,
+    EmailModule, // Simplified email module
+    QueueModule, // New queue module for background jobs
   ],
   providers: [
     // ── Global Guards ────────────────────────────────────────────────────────

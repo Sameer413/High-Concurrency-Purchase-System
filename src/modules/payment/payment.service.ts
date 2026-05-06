@@ -4,6 +4,8 @@ import {
   ConflictException,
   BadRequestException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -17,6 +19,8 @@ import {
   Reservation,
   ReservationStatus,
 } from '../inventory/entities/reservation.entity';
+import { OrderService } from '../order/order.service';
+import { PaymentQueueService } from '../queue/services/payment-queue.service';
 
 @Injectable()
 export class PaymentService {
@@ -30,6 +34,9 @@ export class PaymentService {
     private readonly razorpayService: RazorpayService,
     private readonly inventoryService: InventoryService,
     private readonly dataSource: DataSource,
+    @Inject(forwardRef(() => OrderService))
+    private readonly orderService: OrderService,
+    private readonly paymentQueueService: PaymentQueueService,
   ) {}
 
   /**
@@ -214,6 +221,11 @@ export class PaymentService {
         // Immediately release reserved stock
         await this.releaseStockForFailedPayment(order);
 
+        // Send payment failed email (async, don't wait)
+        this.orderService.sendPaymentFailedEmail(order, 'Invalid signature').catch((err) => {
+          this.logger.error(`Failed to send payment failed email for order ${order.orderNumber}:`, err);
+        });
+
         throw new BadRequestException('Invalid payment signature');
       }
 
@@ -267,6 +279,13 @@ export class PaymentService {
       this.logger.log(
         `Payment verified and order completed: ${order.orderNumber}`,
       );
+
+      // Send payment success email (async, don't wait)
+      if (order.status === 'PAID') {
+        this.orderService.sendPaymentSuccessEmail(order).catch((err) => {
+          this.logger.error(`Failed to send payment success email for order ${order.orderNumber}:`, err);
+        });
+      }
 
       return {
         success: true,
@@ -348,6 +367,11 @@ export class PaymentService {
       // Immediately release reserved stock
       if (payment.order) {
         await this.releaseStockForFailedPayment(payment.order);
+        
+        // Send payment failed email (async, don't wait)
+        this.orderService.sendPaymentFailedEmail(payment.order, reason).catch((err) => {
+          this.logger.error(`Failed to send payment failed email for order ${payment.order.orderNumber}:`, err);
+        });
       }
 
       this.logger.warn(`Payment failed: ${payment.id} - ${reason}`);
@@ -406,7 +430,14 @@ export class PaymentService {
       `Webhook: Payment captured - ${paymentEntity.id} for order ${paymentEntity.order_id}`,
     );
 
-    return await this.dataSource.transaction(async (manager) => {
+    let orderData: {
+      id: string;
+      orderNumber: string;
+      reservationId: string;
+      items: Array<{ productId: string; quantity: number }>;
+    } | null = null;
+
+    await this.dataSource.transaction(async (manager) => {
       // Find payment
       const payment = await manager.findOne(Payment, {
         where: { razorpayOrderId: paymentEntity.order_id },
@@ -455,48 +486,60 @@ export class PaymentService {
         order.status = 'PAID';
         order.paidAt = new Date();
         await manager.save(order);
-
-        // Convert reserved stock to sold stock
-        const reservationRepo = manager.getRepository(Reservation);
-        const reservation = await reservationRepo.findOne({
-          where: { id: order.reservationId },
-        });
-
-        if (reservation && reservation.status !== ReservationStatus.COMPLETED) {
-          try {
-            // Confirm sale for all order items
-            for (const item of order.items) {
-              await this.inventoryService.confirmSaleTx(
-                manager,
-                item.productId,
-                item.quantity,
-              );
-            }
-
-            // Mark reservation as completed
-            reservation.status = ReservationStatus.COMPLETED;
-            await reservationRepo.save(reservation);
-
-            this.logger.log(
-              `Stock converted to sold for order: ${order.orderNumber}`,
-            );
-          } catch (error) {
-            if (error instanceof BadRequestException) {
-              // Stock was released or unavailable (Late Payment Edge Case)
-              this.logger.error(`Stock unavailable for late payment webhook (Order: ${order.orderNumber}). Needs refund.`);
-              order.status = 'NEEDS_REFUND';
-              await manager.save(order);
-            } else {
-              throw error;
-            }
-          }
-        }
       }
 
       this.logger.log(
-        `Payment captured and order completed via webhook: ${order.orderNumber}`,
+        `Payment captured and order updated via webhook: ${order.orderNumber}`,
       );
+
+      // Store order data for queueing after transaction
+      if (order.status === 'PAID') {
+        orderData = {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          reservationId: order.reservationId,
+          items: order.items.map(item => ({
+            productId: item.productId,
+            quantity: item.quantity,
+          })),
+        };
+      }
+
+      // Send payment success email (async, don't wait)
+      if (order.status === 'PAID') {
+        this.orderService.sendPaymentSuccessEmail(order).catch((err) => {
+          this.logger.error(`Failed to send payment success email for order ${order.orderNumber}:`, err);
+        });
+      }
     });
+
+    // After transaction commits, queue stock conversion (async)
+    if (orderData) {
+      const { id, orderNumber, reservationId, items } = orderData;
+      
+      try {
+        // Queue stock conversion job
+        await this.paymentQueueService.queueStockConversion({
+          orderId: id,
+          orderNumber: orderNumber,
+          reservationId: reservationId,
+          items: items,
+        }).catch((err) => {
+          this.logger.error(`Failed to queue stock conversion for order ${orderNumber}:`, err);
+        });
+
+        // Queue reservation completion job
+        await this.paymentQueueService.queueReservationCompletion({
+          orderId: id,
+          orderNumber: orderNumber,
+          reservationId: reservationId,
+        }).catch((err) => {
+          this.logger.error(`Failed to queue reservation completion for order ${orderNumber}:`, err);
+        });
+      } catch (error: any) {
+        this.logger.error(`Failed to queue payment processing jobs: ${error.message}`);
+      }
+    }
   }
 
   /**
@@ -547,6 +590,12 @@ export class PaymentService {
     // Immediately release reserved stock
     if (payment.order) {
       await this.releaseStockForFailedPayment(payment.order);
+      
+      // Send payment failed email (async, don't wait)
+      const errorDescription = paymentEntity.error_description || 'Payment failed';
+      this.orderService.sendPaymentFailedEmail(payment.order, errorDescription).catch((err) => {
+        this.logger.error(`Failed to send payment failed email for order ${payment.order.orderNumber}:`, err);
+      });
     }
 
     this.logger.warn(

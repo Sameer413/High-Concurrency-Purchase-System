@@ -5,10 +5,11 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In } from 'typeorm';
+import { Repository, DataSource, In, Between } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { GetProductsQueryDto } from './dto/get-products-query.dto';
 import { RedisService } from 'src/database/redis/redis.service';
 import { InventoryService } from '../inventory/inventory.service';
 import {
@@ -35,38 +36,158 @@ export class ProductService {
     const product = this.productRepo.create({
       ...dto,
       description: dto.description ?? null,
-      stock: dto.stock ?? 0,
       isActive: dto.isActive ?? true,
     });
-    return this.productRepo.save(product);
+    const savedProduct = await this.productRepo.save(product);
+
+    // Initialize inventory for the new product
+    await this.inventoryService.upsert(savedProduct.id, dto.initialStock ?? 0);
+
+    return savedProduct;
   }
 
   async findAll(
-    limit = 20,
-    page: number = 1,
-    search: string = '',
-  ): Promise<Product[]> {
-    const key = `products:${page}:${limit}:${search}`;
+    query: GetProductsQueryDto,
+  ): Promise<
+    Array<
+      Product & {
+        availableStock: number;
+        totalStock: number;
+        isAvailable: boolean;
+      }
+    >
+  > {
+    const {
+      limit = 20,
+      page = 1,
+      search = '',
+      category,
+      minPrice,
+      maxPrice,
+      colors,
+      newOnly,
+      inStockOnly = true,
+      sortBy,
+    } = query;
 
-    const cached = await this.redisService.get(key);
+    // Build cache key from all query parameters
+    const cacheKey = `products:${page}:${limit}:${search}:${category || ''}:${minPrice || ''}:${maxPrice || ''}:${colors || ''}:${newOnly || ''}:${inStockOnly}:${sortBy || ''}`;
 
+    const cached = await this.redisService.get(cacheKey);
     if (cached) {
       return JSON.parse(cached);
     }
 
-    const query = this.productRepo.createQueryBuilder('product');
-    query.where({ isActive: true });
+    // Build query
+    const queryBuilder = this.productRepo.createQueryBuilder('product');
+    queryBuilder.where({ isActive: true });
+
+    // Search filter
     if (search) {
-      query.andWhere('product.name LIKE :search', { search: `%${search}%` });
+      queryBuilder.andWhere(
+        '(product.name ILIKE :search OR product.description ILIKE :search)',
+        { search: `%${search}%` },
+      );
     }
-    query.orderBy('product.createdAt', 'DESC');
-    query.take(limit);
-    query.skip((page - 1) * limit);
 
-    const products = await query.getMany();
-    await this.redisService.set(key, JSON.stringify(products), 60); // Cache for 60 seconds
+    // Category filter
+    if (category && category !== 'All') {
+      queryBuilder.andWhere('product.category = :category', { category });
+    }
 
-    return products;
+    // Price range filter
+    if (minPrice !== undefined || maxPrice !== undefined) {
+      if (minPrice !== undefined && maxPrice !== undefined) {
+        queryBuilder.andWhere('product.price BETWEEN :minPrice AND :maxPrice', {
+          minPrice,
+          maxPrice,
+        });
+      } else if (minPrice !== undefined) {
+        queryBuilder.andWhere('product.price >= :minPrice', { minPrice });
+      } else if (maxPrice !== undefined) {
+        queryBuilder.andWhere('product.price <= :maxPrice', { maxPrice });
+      }
+    }
+
+    // Colors filter (JSON array contains any of the specified colors)
+    if (colors) {
+      const colorArray = colors.split(',').map((c) => c.trim());
+      queryBuilder.andWhere(
+        'EXISTS (SELECT 1 FROM jsonb_array_elements_text(product.colors) AS color WHERE color = ANY(:colors))',
+        { colors: colorArray },
+      );
+    }
+
+    // New only filter
+    if (newOnly) {
+      queryBuilder.andWhere('product.isNew = :isNew', { isNew: true });
+    }
+
+    // Sorting
+    switch (sortBy) {
+      case 'price-asc':
+        queryBuilder.orderBy('product.price', 'ASC');
+        break;
+      case 'price-desc':
+        queryBuilder.orderBy('product.price', 'DESC');
+        break;
+      case 'name':
+        queryBuilder.orderBy('product.name', 'ASC');
+        break;
+      case 'rating':
+        queryBuilder.orderBy('product.rating', 'DESC');
+        break;
+      case 'newest':
+        queryBuilder.orderBy('product.createdAt', 'DESC');
+        break;
+      default:
+        queryBuilder.orderBy('product.createdAt', 'DESC');
+    }
+
+    // Pagination
+    queryBuilder.take(limit);
+    queryBuilder.skip((page - 1) * limit);
+
+    const products = await queryBuilder.getMany();
+
+    // Fetch inventory data for all products
+    const productIds = products.map((p) => p.id);
+    const inventories = await this.inventoryService.getByProductIds(productIds);
+
+    // Create a map for quick lookup
+    const inventoryMap = new Map(
+      inventories.map((inv) => [inv.productId, inv]),
+    );
+
+    // Combine product data with inventory data
+    let productsWithAvailability = products.map((product) => {
+      const inventory = inventoryMap.get(product.id);
+      const availableStock = inventory?.availableStock ?? 0;
+      const totalStock = inventory?.totalStock ?? 0;
+
+      return {
+        ...product,
+        availableStock,
+        totalStock,
+        isAvailable: availableStock > 0,
+      };
+    });
+
+    // Filter by stock availability if requested
+    if (inStockOnly) {
+      productsWithAvailability = productsWithAvailability.filter(
+        (p) => p.isAvailable,
+      );
+    }
+
+    // Cache for 30 seconds (short TTL due to inventory changes)
+    await this.redisService.set(
+      cacheKey,
+      JSON.stringify(productsWithAvailability),
+      30,
+    );
+
+    return productsWithAvailability;
   }
 
   async findOne(id: string): Promise<Product> {
@@ -97,7 +218,7 @@ export class ProductService {
     // Get product to check if it's active
     const product = await this.productRepo.findOne({
       where: { id },
-      select: ['id', 'isActive', 'stock'],
+      select: ['id', 'isActive'],
     });
 
     if (!product || !product.isActive) {
@@ -119,10 +240,10 @@ export class ProductService {
       await this.redisService.set(cacheKey, JSON.stringify(result), 5);
       return result;
     } catch (error) {
-      // If inventory doesn't exist, fall back to product.stock
+      // If inventory doesn't exist, return 0 stock
       const result = {
-        availableStock: product.stock || 0,
-        canBuy: (product.stock || 0) > 0, // This can be just replaced with (availableStock > 0), but keeping it clear
+        availableStock: 0,
+        canBuy: false,
       };
 
       // Short TTL for availability - just 5 seconds
@@ -137,7 +258,6 @@ export class ProductService {
     if (dto.description !== undefined)
       product.description = dto.description ?? null;
     if (dto.price !== undefined) product.price = dto.price;
-    if (dto.stock !== undefined) product.stock = dto.stock;
     if (dto.isActive !== undefined) product.isActive = dto.isActive;
     return this.productRepo.save(product);
   }

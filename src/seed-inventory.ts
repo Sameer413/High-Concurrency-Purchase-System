@@ -105,16 +105,10 @@ async function seedInventory() {
           reservedStock: stockLevels.reservedStock,
           soldStock: stockLevels.soldStock,
         });
-
-        // Update product.stock to match inventory.totalStock
-        product.stock = stockLevels.totalStock;
       }
 
       // Save inventory records
       await inventoryRepo.save(inventoryBatch);
-
-      // Update product stock fields
-      await productRepo.save(products);
 
       processed += products.length;
       created += inventoryBatch.length;

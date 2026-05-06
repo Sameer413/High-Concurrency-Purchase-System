@@ -19,15 +19,45 @@ import { REDIS_CLIENT } from './redis.constants';
                     host,
                     port,
                     password: password || undefined,
-                    tls: tlsEnabled ? {} : undefined,
+                    tls: tlsEnabled ? {
+                        rejectUnauthorized: true, // Validate SSL certificates
+                    } : undefined,
+                    maxRetriesPerRequest: null, // Required for BullMQ
+                    enableReadyCheck: false, // Reduce connection checks
+                    lazyConnect: false,
+                    keepAlive: 30000, // Keep connection alive for 30 seconds
+                    connectTimeout: 10000, // 10 second connection timeout
+                    retryStrategy: (times) => {
+                        // Limit retries and increase delay
+                        if (times > 10) {
+                            console.error('❌ Redis connection failed after 10 retries');
+                            return null; // Stop retrying
+                        }
+                        const delay = Math.min(times * 100, 3000);
+                        return delay;
+                    },
+                    reconnectOnError: (err) => {
+                        // Reconnect on specific errors
+                        const targetErrors = ['READONLY', 'ECONNRESET', 'ETIMEDOUT'];
+                        return targetErrors.some(targetError => err.message.includes(targetError));
+                    },
                 });
 
+                // Handle errors gracefully
                 client.on('error', (err) => {
-                    console.error('Redis Client Error:', err);
+                    // Only log non-transient errors
+                    if (!err.message.includes('ECONNRESET')) {
+                        console.error('Redis error:', err.message);
+                    }
                 });
 
+                // Only log once on initial connection
+                let hasConnected = false;
                 client.on('connect', () => {
-                    console.log(`🔌 Redis connected to ${host}:${port}`);
+                    if (!hasConnected) {
+                        console.log(`🔌 Redis connected to ${host}:${port}`);
+                        hasConnected = true;
+                    }
                 });
 
                 return client;

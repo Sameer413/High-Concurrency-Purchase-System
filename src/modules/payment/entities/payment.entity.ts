@@ -42,7 +42,14 @@ export class Payment extends BaseEntity {
   razorpaySignature!: string | null;
 
   // 💰 money
-  @Column('decimal', { precision: 10, scale: 2 })
+  @Column('decimal', { 
+    precision: 10, 
+    scale: 2,
+    transformer: {
+      to: (value: number) => value,
+      from: (value: string) => parseFloat(value),
+    }
+  })
   amount!: number;
 
   @Column({ length: 3, default: 'INR' })

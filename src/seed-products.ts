@@ -121,7 +121,6 @@ async function seedProducts() {
           rating: Math.round((Math.random() * 2 + 3) * 10) / 10, // 3.0 - 5.0
           reviews: randomNumber(1, 2500),
           isNew: Math.random() > 0.85,
-          stock: randomNumber(0, 1000),
           isActive: true,
         });
       }

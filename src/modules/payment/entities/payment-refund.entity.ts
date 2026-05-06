@@ -24,7 +24,14 @@ export class PaymentRefund extends BaseEntity {
     @JoinColumn({ name: 'orderId' })
     order!: Order;
 
-    @Column('decimal', { precision: 10, scale: 2 })
+    @Column('decimal', { 
+        precision: 10, 
+        scale: 2,
+        transformer: {
+            to: (value: number) => value,
+            from: (value: string) => parseFloat(value),
+        }
+    })
     refundAmount!: number;
 
     @Column({ nullable: true })

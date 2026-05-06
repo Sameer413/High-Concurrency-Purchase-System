@@ -7,6 +7,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { Product } from '../product/entities/product.entity';
 import { RedisService } from 'src/database/redis/redis.service';
+import { EmailQueueService } from '../queue/services/email-queue.service';
 
 @Injectable()
 export class OrderService {
@@ -19,6 +20,7 @@ export class OrderService {
     private readonly productRepo: Repository<Product>,
     private readonly redisService: RedisService,
     private readonly dataSource: DataSource,
+    private readonly emailQueueService: EmailQueueService,
   ) {}
 
   async create(dto: CreateOrderDto, userId: string): Promise<Order> {
@@ -107,6 +109,11 @@ export class OrderService {
 
         // Step 8: Delete reservation
         await this.redisService.del(`r:${reservationId}`);
+
+        // Step 9: Queue order confirmation email (non-blocking)
+        await this.emailQueueService.queueOrderConfirmation({
+          orderId: savedOrder.id,
+        });
 
         return savedOrder;
       });
@@ -205,5 +212,20 @@ export class OrderService {
     const year = new Date().getFullYear();
     const timestamp = Date.now().toString(36).toUpperCase();
     return `ORD-${year}-${timestamp}`;
+  }
+
+  // Queue payment success email
+  async sendPaymentSuccessEmail(order: Order): Promise<void> {
+    await this.emailQueueService.queuePaymentSuccess({
+      orderId: order.id,
+    });
+  }
+
+  // Queue payment failed email
+  async sendPaymentFailedEmail(order: Order, reason?: string): Promise<void> {
+    await this.emailQueueService.queuePaymentFailed({
+      orderId: order.id,
+      reason,
+    });
   }
 }

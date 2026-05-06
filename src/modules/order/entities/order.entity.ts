@@ -36,7 +36,14 @@ export class Order extends BaseEntity {
   status!: 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED' | 'NEEDS_REFUND';
 
   // 🔥 Core pricing
-  @Column('decimal', { precision: 10, scale: 2 })
+  @Column('decimal', { 
+    precision: 10, 
+    scale: 2,
+    transformer: {
+      to: (value: number) => value,
+      from: (value: string) => parseFloat(value),
+    }
+  })
   totalAmount!: number;
 
   @Column({ length: 3, default: 'INR' })

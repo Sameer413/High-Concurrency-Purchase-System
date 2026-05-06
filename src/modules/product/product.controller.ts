@@ -14,6 +14,7 @@ import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ReservationItemDTO } from './dto/reservation-item.dto';
+import { GetProductsQueryDto } from './dto/get-products-query.dto';
 import { ResponseService } from 'src/common/services/response-service';
 import { Public } from 'src/common/decorators/public.decorator';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
@@ -40,12 +41,8 @@ export class ProductController {
 
   @Public()
   @Get()
-  async findAll(
-    @Query('limit') limit?: number,
-    @Query('page') page?: number,
-    @Query('search') search?: string,
-  ) {
-    const products = await this.productService.findAll(limit, page, search);
+  async findAll(@Query() query: GetProductsQueryDto) {
+    const products = await this.productService.findAll(query);
     return this.responseService.success(
       products,
       'Products retrieved successfully',
