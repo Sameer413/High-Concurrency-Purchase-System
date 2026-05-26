@@ -264,6 +264,11 @@ export class PaymentService {
           // Mark reservation as completed
           reservation.status = ReservationStatus.COMPLETED;
           await reservationRepo.save(reservation);
+          
+          // Cancel scheduled cleanup (payment successful)
+          this.paymentQueueService.cancelReservationCleanup(reservation.id).catch((err) => {
+            this.logger.error(`Failed to cancel cleanup for reservation ${reservation.id}:`, err);
+          });
         } catch (error) {
           if (error instanceof BadRequestException) {
             // Stock was released or unavailable (Late Payment Edge Case)

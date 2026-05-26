@@ -66,6 +66,42 @@ async function ensureDatabaseExists(config: ConfigService): Promise<void> {
                         config.get<string>('nodeEnv') === 'production'
                             ? { rejectUnauthorized: false }
                             : false,
+                    
+                    // ============================================
+                    // CONNECTION POOLING CONFIGURATION
+                    // ============================================
+                    extra: {
+                        // Maximum number of clients in the pool
+                        max: 20,
+                        
+                        // Minimum number of clients in the pool
+                        min: 5,
+                        
+                        // Maximum time (ms) a client can be idle before being closed
+                        idleTimeoutMillis: 30000,
+                        
+                        // Maximum time (ms) to wait for a connection from the pool
+                        connectionTimeoutMillis: 5000,
+                        
+                        // Maximum lifetime (ms) of a connection in the pool
+                        maxLifetime: 600000, // 10 minutes
+                        
+                        // Enable keep-alive for connections
+                        keepAlive: true,
+                        keepAliveInitialDelayMillis: 10000,
+                    },
+                    
+                    // ============================================
+                    // QUERY PERFORMANCE OPTIMIZATION
+                    // ============================================
+                    // Cache query results for 1 second (helps with repeated queries)
+                    cache: {
+                        duration: 1000, // 1 second
+                        type: 'database',
+                    },
+                    
+                    // Maximum query execution time (ms) before logging slow queries
+                    maxQueryExecutionTime: 1000,
                 };
             },
         }),

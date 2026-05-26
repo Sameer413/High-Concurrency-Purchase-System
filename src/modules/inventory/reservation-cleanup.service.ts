@@ -20,9 +20,14 @@ export class ReservationCleanupService {
   ) {}
 
   /**
-   * Runs every minute to find and release expired reservations
+   * Safety net: Runs every 30 minutes to catch any missed cleanups
+   * Primary cleanup is now event-driven via queue jobs
+   * This serves as a backup for edge cases:
+   * - Queue job failed to schedule
+   * - Redis was down during reservation creation
+   * - Old reservations created before queue implementation
    */
-  @Cron(CronExpression.EVERY_MINUTE)
+  @Cron('*/30 * * * *') // Every 30 minutes (was every 1 minute)
   async handleExpiredReservations() {
     try {
       const expiredReservations = await this.reservationRepo.find({
@@ -30,13 +35,17 @@ export class ReservationCleanupService {
           status: ReservationStatus.ACTIVE,
           expiresAt: LessThan(new Date()),
         },
+        take: 100, // Limit to 100 at a time
       });
 
       if (expiredReservations.length === 0) {
+        this.logger.log('Safety net: No expired reservations found');
         return; // Nothing to clean up
       }
 
-      this.logger.log(`Found ${expiredReservations.length} expired reservations. Cleaning up...`);
+      this.logger.warn(
+        `Safety net: Found ${expiredReservations.length} expired reservations (queue may have missed these)`,
+      );
 
       for (const reservation of expiredReservations) {
         try {
@@ -75,7 +84,7 @@ export class ReservationCleanupService {
             this.logger.log(`Cancelled orphaned order ${order.orderNumber} for expired reservation ${reservation.id}`);
           }
 
-          this.logger.log(`Successfully released stock for expired reservation ${reservation.id}`);
+          this.logger.log(`Safety net: Released stock for expired reservation ${reservation.id}`);
         } catch (error: unknown) {
           if (error instanceof Error) {
             this.logger.error(
@@ -90,7 +99,7 @@ export class ReservationCleanupService {
         }
       }
     } catch (error) {
-      this.logger.error('Error running reservation cleanup job', error);
+      this.logger.error('Error running reservation cleanup safety net', error);
     }
   }
 }

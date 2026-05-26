@@ -64,6 +64,44 @@ export class UsersService {
         return this.usersRepository.save(user);
     }
 
+    async updateProfile(id: string, updateData: Partial<CreateUserDto>): Promise<User> {
+        const user = await this.findById(id);
+
+        // Only allow updating specific fields for profile updates
+        const allowedFields = ['firstName', 'lastName', 'phone'];
+        const filteredData: any = {};
+        
+        for (const field of allowedFields) {
+            if (updateData[field as keyof CreateUserDto] !== undefined) {
+                filteredData[field] = updateData[field as keyof CreateUserDto];
+            }
+        }
+
+        Object.assign(user, filteredData);
+        return this.usersRepository.save(user);
+    }
+
+    async updatePassword(id: string, currentPassword: string, newPassword: string): Promise<void> {
+        const user = await this.usersRepository.findOne({
+            where: { id },
+            select: ['id', 'password'],
+        });
+
+        if (!user) {
+            throw new NotFoundException(`User with id "${id}" not found`);
+        }
+
+        // Verify current password
+        const passwordMatches = await bcrypt.compare(currentPassword, user.password);
+        if (!passwordMatches) {
+            throw new ConflictException('Current password is incorrect');
+        }
+
+        // Hash and update new password
+        const hashedPassword = await bcrypt.hash(newPassword, 12);
+        await this.usersRepository.update(id, { password: hashedPassword });
+    }
+
     async updateRefreshToken(id: string, refreshToken: string | null): Promise<void> {
         const hashedRefreshToken = refreshToken
             ? await bcrypt.hash(refreshToken, 12)

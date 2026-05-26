@@ -62,4 +62,53 @@ export class RazorpayService {
   getPublicKey(): string {
     return this.config.get<string>('razorpay.keyId') ?? '';
   }
+
+  /**
+   * Create a refund for a payment
+   * @param paymentId - Razorpay payment ID
+   * @param params - Refund parameters (amount, notes, etc.)
+   */
+  async createRefund(
+    paymentId: string,
+    params: {
+      amount?: number; // Amount in paise (optional, full refund if not provided)
+      notes?: Record<string, string>;
+    },
+  ) {
+    try {
+      return await this.razorpay.payments.refund(paymentId, params);
+    } catch (error: any) {
+      throw new InternalServerErrorException(
+        `Failed to create refund: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Fetch refund details
+   * @param refundId - Razorpay refund ID
+   */
+  async fetchRefund(refundId: string) {
+    try {
+      return await this.razorpay.refunds.fetch(refundId);
+    } catch (error: any) {
+      throw new InternalServerErrorException(
+        `Failed to fetch refund: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Fetch all refunds for a payment
+   * @param paymentId - Razorpay payment ID
+   */
+  async fetchPaymentRefunds(paymentId: string) {
+    try {
+      return await this.razorpay.payments.fetchMultipleRefund(paymentId);
+    } catch (error: any) {
+      throw new InternalServerErrorException(
+        `Failed to fetch payment refunds: ${error.message}`,
+      );
+    }
+  }
 }

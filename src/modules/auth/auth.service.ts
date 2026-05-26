@@ -98,6 +98,18 @@ export class AuthService {
         this.clearCookies(res);
     }
 
+    // ─── Update Profile ──────────────────────────────────────────────────────────
+
+    async updateProfile(userId: string, dto: Partial<RegisterDto>): Promise<User> {
+        return this.usersService.updateProfile(userId, dto);
+    }
+
+    // ─── Update Password ─────────────────────────────────────────────────────────
+
+    async updatePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
+        return this.usersService.updatePassword(userId, currentPassword, newPassword);
+    }
+
     // ─── Token Helpers ────────────────────────────────────────────────────────────
 
     private async generateTokens(user: User): Promise<TokenPair> {

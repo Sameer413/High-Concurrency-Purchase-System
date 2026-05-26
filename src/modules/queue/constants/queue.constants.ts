@@ -4,10 +4,12 @@
  */
 export const QUEUE_NAMES = {
   EMAIL_NOTIFICATIONS: 'email-notifications',
-  // Future queues can be added here:
   PAYMENT_PROCESSING: 'payment-processing',
+  INVENTORY_CLEANUP: 'inventory-cleanup',
+  CRON_JOBS: 'cron-jobs',
+  REFUND_PROCESSING: 'refund-processing',
+  // Future queues can be added here:
   // WEBHOOK_PROCESSING: 'webhook-processing',
-  // RESERVATION_EXPIRY: 'reservation-expiry',
 } as const;
 
 /**
@@ -19,10 +21,23 @@ export const JOB_NAMES = {
   SEND_ORDER_CONFIRMATION: 'send-order-confirmation',
   SEND_PAYMENT_SUCCESS: 'send-payment-success',
   SEND_PAYMENT_FAILED: 'send-payment-failed',
+  SEND_REFUND_INITIATED: 'send-refund-initiated',
+  SEND_REFUND_COMPLETED: 'send-refund-completed',
 
   // Payment processing jobs
   CONVERT_STOCK: 'convert-stock',
   COMPLETE_RESERVATION: 'complete-reservation',
+  
+  // Inventory cleanup jobs
+  CLEANUP_SINGLE_RESERVATION: 'cleanup-single-reservation',
+  
+  // Cron jobs
+  CLEANUP_ORPHANED_RESERVATIONS: 'cleanup-orphaned-reservations',
+  REDIS_HEALTH_CHECK: 'redis-health-check',
+  
+  // Refund processing jobs
+  INITIATE_REFUND: 'initiate-refund',
+  CHECK_REFUND_STATUS: 'check-refund-status',
 } as const;
 
 /**
@@ -60,6 +75,57 @@ export const QUEUE_CONFIG = {
       },
       removeOnFail: {
         age: 30 * 24 * 3600, // Keep failed jobs for 30 days
+        count: 1000,
+      },
+    },
+  },
+  INVENTORY_CLEANUP: {
+    defaultJobOptions: {
+      attempts: 3, // Retry up to 3 times
+      backoff: {
+        type: 'exponential' as const,
+        delay: 5000, // Start with 5 second delay
+      },
+      removeOnComplete: {
+        age: 24 * 3600, // Keep completed jobs for 24 hours
+        count: 500,
+      },
+      removeOnFail: {
+        age: 7 * 24 * 3600, // Keep failed jobs for 7 days
+        count: 200,
+      },
+    },
+  },
+  CRON_JOBS: {
+    defaultJobOptions: {
+      attempts: 2, // Limited retries for cron jobs
+      backoff: {
+        type: 'fixed' as const,
+        delay: 30000, // 30 second delay between retries
+      },
+      removeOnComplete: {
+        age: 7 * 24 * 3600, // Keep completed jobs for 7 days
+        count: 100,
+      },
+      removeOnFail: {
+        age: 30 * 24 * 3600, // Keep failed jobs for 30 days
+        count: 100,
+      },
+    },
+  },
+  REFUND_PROCESSING: {
+    defaultJobOptions: {
+      attempts: 5, // More retries for refunds
+      backoff: {
+        type: 'exponential' as const,
+        delay: 2000, // Start with 2 second delay
+      },
+      removeOnComplete: {
+        age: 30 * 24 * 3600, // Keep completed jobs for 30 days (audit trail)
+        count: 1000,
+      },
+      removeOnFail: {
+        age: 90 * 24 * 3600, // Keep failed jobs for 90 days
         count: 1000,
       },
     },

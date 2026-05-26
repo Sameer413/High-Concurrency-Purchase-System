@@ -6,4 +6,8 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
     @IsOptional()
     @IsString()
     stripeCustomerId?: string;
+    
+    @IsOptional()
+    @IsString()
+    phone?: string;
 }

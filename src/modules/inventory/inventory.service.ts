@@ -125,23 +125,34 @@ export class InventoryService {
   }
 
   // -----------------------------------
-  // RELEASE RESERVED STOCK
+  // RELEASE RESERVED STOCK (Transaction-safe version)
+  // -----------------------------------
+  async releaseReservationTx(
+    manager: EntityManager,
+    productId: string,
+    quantity: number,
+  ): Promise<void> {
+    await manager.query(
+      `
+      UPDATE inventory
+      SET "reservedStock" =
+        GREATEST(0, "reservedStock" - $2),
+        "updatedAt" = NOW()
+      WHERE "productId" = $1
+      `,
+      [productId, quantity],
+    );
+  }
+
+  // -----------------------------------
+  // RELEASE RESERVED STOCK (Standalone)
   // -----------------------------------
   async releaseReservation(
     productId: string,
     quantity: number,
   ): Promise<Inventory> {
     return this.dataSource.transaction(async (manager) => {
-      await manager.query(
-        `
-        UPDATE inventory
-        SET "reservedStock" =
-          GREATEST(0, "reservedStock" - $2),
-          "updatedAt" = NOW()
-        WHERE "productId" = $1
-        `,
-        [productId, quantity],
-      );
+      await this.releaseReservationTx(manager, productId, quantity);
 
       return manager.findOneOrFail(Inventory, {
         where: { productId },

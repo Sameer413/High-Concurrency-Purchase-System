@@ -90,6 +90,56 @@ export class EmailQueueService {
   }
 
   /**
+   * Queue refund initiated email
+   */
+  async queueRefundInitiated(data: {
+    orderId: string;
+    refundId: string;
+  }): Promise<void> {
+    try {
+      await this.emailQueue.add(JOB_NAMES.SEND_REFUND_INITIATED, data, {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 2000,
+        },
+      });
+
+      this.logger.log(`Queued refund initiated email for order ${data.orderId}`);
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to queue refund initiated email for order ${data.orderId}: ${error.message}`,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Queue refund completed email
+   */
+  async queueRefundCompleted(data: {
+    orderId: string;
+    refundId: string;
+  }): Promise<void> {
+    try {
+      await this.emailQueue.add(JOB_NAMES.SEND_REFUND_COMPLETED, data, {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 2000,
+        },
+      });
+
+      this.logger.log(`Queued refund completed email for order ${data.orderId}`);
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to queue refund completed email for order ${data.orderId}: ${error.message}`,
+      );
+      throw error;
+    }
+  }
+
+  /**
    * Get queue statistics
    */
   async getQueueStats() {

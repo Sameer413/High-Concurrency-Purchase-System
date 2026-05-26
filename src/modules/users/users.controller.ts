@@ -41,6 +41,16 @@ export class UsersController {
         const profile = await this.usersService.findById(user.id);
         return this.responseService.success(profile, 'Profile retrieved successfully');
     }
+    
+    /** Any authenticated user: update own profile */
+    @Patch('me')
+    async updateProfile(
+        @CurrentUser() user: User,
+        @Body() updateUserDto: UpdateUserDto,
+    ): Promise<ApiResponse<User>> {
+        const updatedUser = await this.usersService.update(user.id, updateUserDto);
+        return this.responseService.success(updatedUser, 'Profile updated successfully');
+    }
 
     /** Admin: view any user by ID */
     @Roles(Role.ADMIN)

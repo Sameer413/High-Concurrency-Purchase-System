@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Res,
   UseGuards,
@@ -12,7 +13,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { AuthService } from './auth.service';
-import { LoginDto, RegisterDto } from './dto/auth.dto';
+import { LoginDto, RegisterDto, UpdatePasswordDto } from './dto/auth.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtRefreshAuthGuard } from './guards/jwt-refresh.guard';
@@ -94,5 +95,31 @@ export class AuthController {
   @Get('me')
   getMe(@CurrentUser() user: User) {
     return this.responseService.success(user, 'User retrieved successfully');
+  }
+
+  /**
+   * PATCH /auth/me
+   * Protected – updates the currently authenticated user's profile
+   */
+  @Patch('me')
+  async updateProfile(
+    @CurrentUser() user: User,
+    @Body() dto: Partial<RegisterDto>,
+  ) {
+    const updatedUser = await this.authService.updateProfile(user.id, dto);
+    return this.responseService.success(updatedUser, 'Profile updated successfully');
+  }
+
+  /**
+   * PATCH /auth/update-password
+   * Protected – updates the currently authenticated user's password
+   */
+  @Patch('update-password')
+  async updatePassword(
+    @CurrentUser() user: User,
+    @Body() dto: UpdatePasswordDto,
+  ) {
+    await this.authService.updatePassword(user.id, dto.currentPassword, dto.newPassword);
+    return this.responseService.success(null, 'Password updated successfully');
   }
 }

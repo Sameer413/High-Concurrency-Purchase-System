@@ -52,7 +52,7 @@ export class PaymentProcessor extends WorkerHost {
           this.logger.warn(`Unknown job name: ${job.name}`);
           throw new Error(`Unknown job name: ${job.name}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(
         `Failed to process job ${job.name} (ID: ${job.id}): ${error.message}`,
         error.stack,
@@ -70,9 +70,7 @@ export class PaymentProcessor extends WorkerHost {
   ): Promise<void> {
     const { orderId, orderNumber, reservationId, items } = job.data;
 
-    this.logger.log(
-      `Converting stock for order ${orderNumber} (${orderId})`,
-    );
+    this.logger.log(`Converting stock for order ${orderNumber} (${orderId})`);
 
     return await this.dataSource.transaction(async (manager) => {
       // 1. Verify order exists and is in PAID status

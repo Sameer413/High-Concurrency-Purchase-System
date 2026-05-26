@@ -16,6 +16,9 @@ export class User extends BaseEntity {
 
   @Column({ length: 100 })
   lastName!: string;
+  
+  @Column({ length: 20, nullable: true })
+  phone?: string;
 
   @Exclude()
   @Column()

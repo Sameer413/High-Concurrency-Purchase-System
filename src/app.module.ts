@@ -30,6 +30,8 @@ import emailConfig from './config/email.config';
 import { EmailModule } from './modules/email/email.module';
 import { QueueModule } from './modules/queue/queue.module';
 import { BullModule } from "@nestjs/bullmq"
+import { S3Module } from './modules/s3/s3.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -100,6 +102,8 @@ import { BullModule } from "@nestjs/bullmq"
     CartModule,
     EmailModule, // Simplified email module
     QueueModule, // New queue module for background jobs
+    S3Module, // AWS S3 storage module
+    AdminModule, // Admin panel APIs
   ],
   providers: [
     // ── Global Guards ────────────────────────────────────────────────────────

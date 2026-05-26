@@ -14,6 +14,7 @@ import { OrderItem } from './order-item.entity';
 // import { OrderNote } from './order-note.entity';
 import { BaseEntity } from '../../../database/entities/base.entity';
 import { Payment } from '../../payment/entities/payment.entity';
+import { PaymentRefund } from '../../payment/entities/payment-refund.entity';
 
 @Entity('orders')
 export class Order extends BaseEntity {
@@ -33,7 +34,7 @@ export class Order extends BaseEntity {
 
   // 🔥 Keep status simple but controlled
   @Column({ default: 'PENDING' })
-  status!: 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED' | 'NEEDS_REFUND';
+  status!: 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED' | 'NEEDS_REFUND' | 'REFUND_INITIATED' | 'REFUNDED';
 
   // 🔥 Core pricing
   @Column('decimal', { 
@@ -67,10 +68,16 @@ export class Order extends BaseEntity {
   @Column({ type: 'timestamptz', nullable: true })
   cancelledAt!: Date;
 
+  @Column({ type: 'timestamptz', nullable: true })
+  refundedAt!: Date;
+
   // relations
   @OneToMany(() => OrderItem, (item) => item.order)
   items!: OrderItem[];
 
   @OneToMany(() => Payment, (p) => p.order)
   payments!: Payment[];
+
+  @OneToMany(() => PaymentRefund, (r) => r.order)
+  refunds!: PaymentRefund[];
 }

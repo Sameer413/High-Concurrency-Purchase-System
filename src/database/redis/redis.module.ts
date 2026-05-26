@@ -10,10 +10,18 @@ import { REDIS_CLIENT } from './redis.constants';
         {
             provide: REDIS_CLIENT,
             useFactory: (configService: ConfigService) => {
-                const host = configService.get<string>('redis.host', 'wanted-katydid-70825.upstash.io');
+                const host = configService.get<string>('redis.host');
                 const port = configService.get<number>('redis.port', 6379);
-                const password = configService.get<string>('redis.password', 'gQAAAAAAARSpAAIgcDE4NGYwNGEyMzI1Zjc0MzBhOGQ4Mjc1YzRkOWVhNTI1OA');
+                const password = configService.get<string>('redis.password');
                 const tlsEnabled = configService.get<boolean>('redis.tls', true);
+
+                if (!host) {
+                    throw new Error('REDIS_HOST is not configured in environment variables');
+                }
+
+                if (!password) {
+                    throw new Error('REDIS_PASSWORD is not configured in environment variables');
+                }
 
                 const client = new Redis({
                     host,

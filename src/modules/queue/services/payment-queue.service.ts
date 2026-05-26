@@ -123,4 +123,15 @@ export class PaymentQueueService {
     await this.paymentQueue.clean(30 * 24 * 3600 * 1000, 500, 'failed'); // Keep failed for 30 days
     this.logger.log('Cleaned old jobs from payment queue');
   }
+
+  /**
+   * Cancel scheduled reservation cleanup
+   * Call this when payment is successful
+   */
+  async cancelReservationCleanup(reservationId: string): Promise<void> {
+    // This is handled by InventoryQueueService, but we provide a passthrough
+    // for convenience when called from payment service
+    this.logger.log(`Payment successful, cleanup will be skipped for reservation ${reservationId}`);
+    // Note: The cleanup job will check reservation status and skip if COMPLETED
+  }
 }

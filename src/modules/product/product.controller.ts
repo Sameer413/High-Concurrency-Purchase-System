@@ -9,7 +9,10 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -20,6 +23,7 @@ import { Public } from 'src/common/decorators/public.decorator';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { InventoryService } from '../inventory';
 import { User } from '../users/entities/user.entity';
+import { S3Service } from '../s3/s3.service';
 
 @Controller('products')
 export class ProductController {
@@ -27,6 +31,7 @@ export class ProductController {
     private readonly productService: ProductService,
     private readonly responseService: ResponseService,
     private readonly inventoryService: InventoryService,
+    private readonly s3Service: S3Service,
   ) {}
 
   @Post()
@@ -36,6 +41,45 @@ export class ProductController {
     return this.responseService.success(
       product,
       'Product created successfully',
+    );
+  }
+
+  // =========================================
+  // CREATE PRODUCT V2 - With Image Upload to S3
+  // =========================================
+  @Post('v2')
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('image'))
+  async createV2(
+    @Body() dto: CreateProductDto,
+    @UploadedFile() image?: any,
+  ) {
+    let imageUrl: string | null = null;
+
+    // Upload image to S3 if provided
+    if (image) {
+      const key = `products/${Date.now()}-${image.originalname}`;
+      const result = await this.s3Service.uploadFile(
+        key,
+        image.buffer,
+        image.mimetype,
+        {
+          productName: dto.name,
+          uploadedAt: new Date().toISOString(),
+        },
+      );
+      imageUrl = result.url;
+    }
+
+    // Create product with image URL
+    const product = await this.productService.create({
+      ...dto,
+      image: imageUrl,
+    });
+
+    return this.responseService.success(
+      product,
+      'Product created successfully with image',
     );
   }
 
